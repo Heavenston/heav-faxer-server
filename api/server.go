@@ -82,10 +82,18 @@ func (s *Server) upload() http.HandlerFunc {
 			for {
 				bytes := make([]byte, 1000)
 				n, err := part.Read(bytes)
-				if n == 0 || err != nil {
-					break
+				if n != 0 {
+					file.Write(bytes[:n])
 				}
-				file.Write(bytes[:n])
+				if err == nil {
+					continue
+				}
+				if err.Error() == "EOF" {
+					break
+				} else {
+					println("Could not read file: " + err.Error())
+					return
+				}
 			}
 
 			file.Close()
@@ -154,14 +162,18 @@ func (s *Server) download() http.HandlerFunc {
 		for {
 			bytes := make([]byte, 1000)
 			n, err := file.Read(bytes)
-			if err != nil && err.Error() != "EOF" {
+			if n != 0 {
+				w.Write(bytes[:n])
+			}
+			if err == nil {
+				continue
+			}
+			if err.Error() == "EOF" {
+				break
+			} else {
 				println("Could not read file: " + err.Error())
 				return
 			}
-			if n == 0 || (err != nil && err.Error() == "EOF") {
-				break
-			}
-			w.Write(bytes[:n])
 		}
 	}
 }
