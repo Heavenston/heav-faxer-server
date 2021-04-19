@@ -11,6 +11,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
+var fileLifetime time.Duration = 120000000000
 var fileIdLetters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func generateFileID() string {
@@ -89,6 +90,13 @@ func (s *Server) upload() http.HandlerFunc {
 				createdAt: time.Now(),
 			}
 			s.files[fax_file.id] = fax_file
+
+			time.AfterFunc(fileLifetime, func() {
+				delete(s.files, file_id)
+			})
+			time.AfterFunc(fileLifetime+60000000000, func() {
+				os.RemoveAll("files/" + file_id)
+			})
 
 			added_files[part.FormName()] = fax_file
 		}
