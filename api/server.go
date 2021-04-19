@@ -1,12 +1,24 @@
 package api
 
 import (
+	"encoding/json"
+	"math/rand"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/gorilla/mux"
 )
+
+var fileIdLetters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+func generateFileID() string {
+	output := make([]byte, 7)
+	for i := range output {
+		output[i] = fileIdLetters[rand.Intn(len(fileIdLetters))]
+	}
+	return string(output)
+}
 
 type FaxFile struct {
 	id        string
@@ -41,7 +53,7 @@ func (s *Server) upload() http.HandlerFunc {
 			r.Write(nil)
 			return
 		}
-		added_files := make([]*FaxFile, 0)
+		added_files := make(map[string]*FaxFile, 0)
 
 		for {
 			part, err := multipartReader.NextPart()
@@ -51,10 +63,8 @@ func (s *Server) upload() http.HandlerFunc {
 				}
 				break
 			}
-			println("FILE!")
-			println(part.FileName())
 
-			file_id := "hello"
+			file_id := generateFileID()
 			file, err := os.Create("files/" + file_id)
 			if err != nil {
 				panic(err)
@@ -76,7 +86,7 @@ func (s *Server) upload() http.HandlerFunc {
 			}
 			s.files[fax_file.id] = fax_file
 
-			added_files = append(added_files, fax_file)
+			added_files[part.FormName()] = fax_file
 		}
 
 		w.Header().Add("Content-Type", "application/json")
@@ -86,6 +96,12 @@ func (s *Server) upload() http.HandlerFunc {
 			w.Write([]byte("{\"type\":\"error\",\"message\":\"Invalid request\"}"))
 		}
 
-		w.Write([]byte("Hello"))
+		file_name_map := make(map[string]string, len(added_files))
+		for key, file := range added_files {
+			file_name_map[key] = file.id
+		}
+		file_name_map_string, _ := json.Marshal(file_name_map)
+
+		w.Write([]byte("{\"type\":\"success\", \"files\":" + string(file_name_map_string) + "}"))
 	}
 }
