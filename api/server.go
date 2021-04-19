@@ -79,6 +79,8 @@ func (s *Server) upload() http.HandlerFunc {
 				file.Write(bytes)
 			}
 
+			file.Close()
+
 			fax_file := &FaxFile{
 				id:        file_id,
 				name:      part.FileName(),
