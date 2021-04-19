@@ -26,6 +26,9 @@ type FaxFile struct {
 	id        string
 	name      string
 	createdAt time.Time
+
+	uploadedBy string
+	downloads  int
 }
 
 type Server struct {
@@ -50,6 +53,8 @@ func NewServer() *Server {
 
 func (s *Server) upload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		println("Receiving upload request from", r.RemoteAddr)
+
 		multipartReader, err := r.MultipartReader()
 		if err != nil {
 			r.Response.StatusCode = 404
@@ -66,8 +71,9 @@ func (s *Server) upload() http.HandlerFunc {
 				}
 				break
 			}
-
 			file_id := generateFileID()
+			println("Receiving file", file_id, "from", r.RemoteAddr)
+
 			file, err := os.Create("files/" + file_id)
 			if err != nil {
 				panic(err)
@@ -88,6 +94,9 @@ func (s *Server) upload() http.HandlerFunc {
 				id:        file_id,
 				name:      part.FileName(),
 				createdAt: time.Now(),
+
+				downloads:  0,
+				uploadedBy: r.RemoteAddr,
 			}
 			s.files[fax_file.id] = fax_file
 
@@ -136,6 +145,8 @@ func (s *Server) download() http.HandlerFunc {
 			return
 		}
 
+		fax_file.downloads += 1
+
 		stats, _ := file.Stat()
 		w.Header().Add("Content-Length", fmt.Sprint(stats.Size()))
 		w.WriteHeader(200)
@@ -147,7 +158,7 @@ func (s *Server) download() http.HandlerFunc {
 				println("Could not read file: " + err.Error())
 				return
 			}
-			if n == 0 {
+			if n == 0 || (err != nil && err.Error() == "EOF") {
 				break
 			}
 			w.Write(bytes)
