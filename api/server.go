@@ -80,12 +80,12 @@ func (s *Server) upload() http.HandlerFunc {
 			}
 
 			for {
-				bytes := make([]byte, 500)
+				bytes := make([]byte, 1000)
 				n, err := part.Read(bytes)
 				if n == 0 || err != nil {
 					break
 				}
-				file.Write(bytes)
+				file.Write(bytes[:n])
 			}
 
 			file.Close()
@@ -161,7 +161,7 @@ func (s *Server) download() http.HandlerFunc {
 			if n == 0 || (err != nil && err.Error() == "EOF") {
 				break
 			}
-			w.Write(bytes)
+			w.Write(bytes[:n])
 		}
 	}
 }
