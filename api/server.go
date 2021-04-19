@@ -53,7 +53,7 @@ func (s *Server) upload() http.HandlerFunc {
 			r.Write(nil)
 			return
 		}
-		added_files := make(map[string]*FaxFile, 0)
+		added_files := make(map[string]*FaxFile)
 
 		for {
 			part, err := multipartReader.NextPart()
