@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"os"
@@ -38,6 +39,7 @@ func NewServer() *Server {
 		files:  make(map[string]*FaxFile),
 	}
 	s.HandleFunc("/upload", s.upload()).Methods("POST")
+	s.HandleFunc("/file/{id}", s.download()).Methods("GET")
 
 	os.RemoveAll("files")
 	os.MkdirAll("files", 0755)
@@ -105,5 +107,42 @@ func (s *Server) upload() http.HandlerFunc {
 		file_name_map_string, _ := json.Marshal(file_name_map)
 
 		w.Write([]byte("{\"type\":\"success\", \"files\":" + string(file_name_map_string) + "}"))
+	}
+}
+
+func (s *Server) download() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		fax_file, ok := s.files[vars["id"]]
+		if !ok {
+			w.WriteHeader(404)
+			w.Write(nil)
+			return
+		}
+		w.Header().Add("Content-Type", "application/octet-stream")
+		w.Header().Add("Content-Disposition", "attachment; filename=\""+fax_file.name+"\"")
+
+		file, err := os.Open("files/" + fax_file.id)
+		if err != nil {
+			println("Could not open a file: " + err.Error())
+			return
+		}
+
+		stats, _ := file.Stat()
+		w.Header().Add("Content-Length", fmt.Sprint(stats.Size()))
+		w.WriteHeader(200)
+
+		for {
+			bytes := make([]byte, 1000)
+			n, err := file.Read(bytes)
+			if err != nil && err.Error() != "EOF" {
+				println("Could not read file: " + err.Error())
+				return
+			}
+			if n == 0 {
+				break
+			}
+			w.Write(bytes)
+		}
 	}
 }
