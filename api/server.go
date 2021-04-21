@@ -42,8 +42,9 @@ func NewServer() *Server {
 		Router: mux.NewRouter(),
 		files:  make(map[string]*FaxFile),
 	}
-	s.HandleFunc("/upload", s.upload()).Methods("POST")
-	s.HandleFunc("/file/{id}", s.download()).Methods("GET")
+	s.HandleFunc("/upload", s.upload()).Methods("POST", "OPTIONS")
+	s.HandleFunc("/file/{id}", s.download()).Methods("GET", "OPTIONS")
+	s.Use(mux.CORSMethodMiddleware(s.Router))
 
 	os.RemoveAll("files")
 	os.MkdirAll("files", 0755)
@@ -53,6 +54,7 @@ func NewServer() *Server {
 
 func (s *Server) upload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		println("Receiving upload request from", r.RemoteAddr)
 
 		multipartReader, err := r.MultipartReader()
@@ -118,7 +120,7 @@ func (s *Server) upload() http.HandlerFunc {
 			added_files[part.FormName()] = fax_file
 		}
 
-		w.Header().Add("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json")
 
 		if len(added_files) == 0 {
 			w.WriteHeader(400)
@@ -137,6 +139,8 @@ func (s *Server) upload() http.HandlerFunc {
 
 func (s *Server) download() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+
 		vars := mux.Vars(r)
 		fax_file, ok := s.files[vars["id"]]
 		if !ok {
@@ -144,8 +148,8 @@ func (s *Server) download() http.HandlerFunc {
 			w.Write(nil)
 			return
 		}
-		w.Header().Add("Content-Type", "application/octet-stream")
-		w.Header().Add("Content-Disposition", "attachment; filename=\""+fax_file.name+"\"")
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=\""+fax_file.name+"\"")
 
 		file, err := os.Open("files/" + fax_file.id)
 		if err != nil {
@@ -156,7 +160,7 @@ func (s *Server) download() http.HandlerFunc {
 		fax_file.downloads += 1
 
 		stats, _ := file.Stat()
-		w.Header().Add("Content-Length", fmt.Sprint(stats.Size()))
+		w.Header().Set("Content-Length", fmt.Sprint(stats.Size()))
 		w.WriteHeader(200)
 
 		for {
