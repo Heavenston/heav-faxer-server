@@ -55,12 +55,16 @@ func NewServer() *Server {
 func (s *Server) upload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == "OPTIONS" {
+			return
+		}
 		println("Receiving upload request from", r.RemoteAddr)
 
 		multipartReader, err := r.MultipartReader()
 		if err != nil {
-			r.Response.StatusCode = 404
-			r.Write(nil)
+			println("Error while parsing request", err.Error())
+			w.WriteHeader(400)
+			w.Write(nil)
 			return
 		}
 		added_files := make(map[string]*FaxFile)
@@ -140,6 +144,9 @@ func (s *Server) upload() http.HandlerFunc {
 func (s *Server) download() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == "OPTIONS" {
+			return
+		}
 
 		vars := mux.Vars(r)
 		fax_file, ok := s.files[vars["id"]]
