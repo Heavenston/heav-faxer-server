@@ -42,13 +42,13 @@ func NewServer(googleAccessId string, googlePrivateKey string, googleBucket stri
 		googlePrivateKey: googlePrivateKeyBytes,
 		googleBucket:     googleBucket,
 	}
-	s.HandleFunc("/getUploadUrl", s.getUploadURL()).Methods("POST", "OPTIONS")
+	s.HandleFunc("/uploadUrl", s.uploadURL()).Methods("GET", "OPTIONS")
 	s.Use(mux.CORSMethodMiddleware(s.Router))
 
 	return s, nil
 }
 
-func (s *Server) getUploadURL() http.HandlerFunc {
+func (s *Server) uploadURL() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == "OPTIONS" {
