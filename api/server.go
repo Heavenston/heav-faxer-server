@@ -1,17 +1,15 @@
 package api
 
 import (
-	"encoding/json"
-	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net/http"
-	"os"
 	"time"
 
+	"cloud.google.com/go/storage"
 	"github.com/gorilla/mux"
 )
 
-var fileLifetime time.Duration = 120000000000
 var fileIdLetters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 func generateFileID() string {
@@ -22,169 +20,68 @@ func generateFileID() string {
 	return string(output)
 }
 
-type FaxFile struct {
-	id        string
-	name      string
-	createdAt time.Time
-
-	uploadedBy string
-	downloads  int
-}
-
 type Server struct {
 	*mux.Router
 
-	files map[string]*FaxFile
+	googleAccessId   string
+	googlePrivateKey []byte
+	googleBucket     string
 }
 
-func NewServer() *Server {
+func NewServer(googleAccessId string, googlePrivateKey string, googleBucket string) (*Server, error) {
+	googlePrivateKeyBytes, err := ioutil.ReadFile(googlePrivateKey)
+	if err != nil {
+		println("Could not read google private key: ", err.Error())
+		return nil, err
+	}
+
 	s := &Server{
 		Router: mux.NewRouter(),
-		files:  make(map[string]*FaxFile),
+
+		googleAccessId:   googleAccessId,
+		googlePrivateKey: googlePrivateKeyBytes,
+		googleBucket:     googleBucket,
 	}
-	s.HandleFunc("/upload", s.upload()).Methods("POST", "OPTIONS")
-	s.HandleFunc("/file/{id}", s.download()).Methods("GET", "OPTIONS")
+	s.HandleFunc("/getUploadUrl", s.getUploadURL()).Methods("POST", "OPTIONS")
 	s.Use(mux.CORSMethodMiddleware(s.Router))
 
-	os.RemoveAll("files")
-	os.MkdirAll("files", 0755)
-
-	return s
+	return s, nil
 }
 
-func (s *Server) upload() http.HandlerFunc {
+func (s *Server) getUploadURL() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == "OPTIONS" {
 			return
 		}
-		println("Receiving upload request from", r.RemoteAddr)
 
-		multipartReader, err := r.MultipartReader()
-		if err != nil {
-			println("Error while parsing request", err.Error())
+		filename := r.URL.Query().Get("filename")
+		if len(filename) < 2 || len(filename) > 30 {
 			w.WriteHeader(400)
 			w.Write(nil)
 			return
 		}
-		added_files := make(map[string]*FaxFile)
 
-		for {
-			part, err := multipartReader.NextPart()
-			if err != nil || part == nil {
-				if err != nil && err.Error() != "EOF" {
-					println("And error occurred: ", err)
-				}
-				break
-			}
-			file_id := generateFileID()
-			println("Receiving file", file_id, "from", r.RemoteAddr)
+		fileId := generateFileID()
 
-			file, err := os.Create("files/" + file_id)
-			if err != nil {
-				panic(err)
-			}
-
-			for {
-				bytes := make([]byte, 1000)
-				n, err := part.Read(bytes)
-				if n != 0 {
-					file.Write(bytes[:n])
-				}
-				if err == nil {
-					continue
-				}
-				if err.Error() == "EOF" {
-					break
-				} else {
-					println("Could not read file: " + err.Error())
-					return
-				}
-			}
-
-			file.Close()
-
-			fax_file := &FaxFile{
-				id:        file_id,
-				name:      part.FileName(),
-				createdAt: time.Now(),
-
-				downloads:  0,
-				uploadedBy: r.RemoteAddr,
-			}
-			s.files[fax_file.id] = fax_file
-
-			time.AfterFunc(fileLifetime, func() {
-				delete(s.files, file_id)
-			})
-			time.AfterFunc(fileLifetime+60000000000, func() {
-				os.RemoveAll("files/" + file_id)
-			})
-
-			added_files[part.FormName()] = fax_file
+		signedUrl, err := storage.SignedURL(s.googleBucket, fileId, &storage.SignedURLOptions{
+			GoogleAccessID: s.googleAccessId,
+			PrivateKey:     s.googlePrivateKey,
+			Expires:        time.Now().Add(time.Minute * 15),
+			Method:         "PUT",
+			Headers: []string{
+				"content-disposition:attachment; filename=\"" + filename + "\"",
+			},
+			ContentType: "application/octet-stream",
+			Scheme:      storage.SigningSchemeV4,
+		})
+		if err != nil {
+			println("Could not create a post policy:", err.Error())
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-
-		if len(added_files) == 0 {
-			w.WriteHeader(400)
-			w.Write([]byte("{\"type\":\"error\",\"message\":\"Invalid request\"}"))
-		}
-
-		file_name_map := make(map[string]string, len(added_files))
-		for key, file := range added_files {
-			file_name_map[key] = file.id
-		}
-		file_name_map_string, _ := json.Marshal(file_name_map)
-
-		w.Write([]byte("{\"type\":\"success\", \"files\":" + string(file_name_map_string) + "}"))
-	}
-}
-
-func (s *Server) download() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		if r.Method == "OPTIONS" {
-			return
-		}
-
-		vars := mux.Vars(r)
-		fax_file, ok := s.files[vars["id"]]
-		if !ok {
-			w.WriteHeader(404)
-			w.Write(nil)
-			return
-		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", "attachment; filename=\""+fax_file.name+"\"")
-
-		file, err := os.Open("files/" + fax_file.id)
-		if err != nil {
-			println("Could not open a file: " + err.Error())
-			return
-		}
-
-		fax_file.downloads += 1
-
-		stats, _ := file.Stat()
-		w.Header().Set("Content-Length", fmt.Sprint(stats.Size()))
 		w.WriteHeader(200)
-
-		for {
-			bytes := make([]byte, 1000)
-			n, err := file.Read(bytes)
-			if n != 0 {
-				w.Write(bytes[:n])
-			}
-			if err == nil {
-				continue
-			}
-			if err.Error() == "EOF" {
-				break
-			} else {
-				println("Could not read file: " + err.Error())
-				return
-			}
-		}
+		w.Write([]byte("{\"type\": \"success\", \"url\": \"" + signedUrl + "\", \"file_id\": \"" + fileId + "\"}"))
 	}
 }
