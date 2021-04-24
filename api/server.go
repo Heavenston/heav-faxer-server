@@ -56,7 +56,7 @@ func (s *Server) uploadURL() http.HandlerFunc {
 		}
 
 		filename := r.URL.Query().Get("filename")
-		if len(filename) < 2 || len(filename) > 30 {
+		if len(filename) < 2 {
 			w.WriteHeader(400)
 			w.Write(nil)
 			return
