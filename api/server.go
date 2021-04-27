@@ -43,6 +43,7 @@ func NewServer(googleAccessId string, googlePrivateKey string, googleBucket stri
 		googleBucket:     googleBucket,
 	}
 	s.HandleFunc("/uploadUrl", s.uploadURL()).Methods("GET", "OPTIONS")
+	s.HandleFunc("/file/{id}", s.getFile()).Methods("GET", "OPTIONS")
 	s.Use(mux.CORSMethodMiddleware(s.Router))
 
 	return s, nil
@@ -83,5 +84,35 @@ func (s *Server) uploadURL() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		w.Write([]byte("{\"type\": \"success\", \"url\": \"" + signedUrl + "\", \"file_id\": \"" + fileId + "\"}"))
+	}
+}
+
+func (s *Server) getFile() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		vars := mux.Vars(r)
+		fileId, ok := vars["id"]
+		if !ok || len(fileId) != 7 {
+			w.WriteHeader(404)
+		}
+
+		signedUrl, err := storage.SignedURL(s.googleBucket, fileId, &storage.SignedURLOptions{
+			GoogleAccessID: s.googleAccessId,
+			PrivateKey:     s.googlePrivateKey,
+			Expires:        time.Now().Add(time.Minute * 15),
+			Method:         "GET",
+			Scheme:         storage.SigningSchemeV4,
+		})
+		if err != nil {
+			println("Could not create a post policy:", err.Error())
+			return
+		}
+
+		w.Header().Set("Location", signedUrl)
+		w.WriteHeader(302)
+		w.Write(nil)
 	}
 }
